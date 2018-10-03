@@ -1,0 +1,132 @@
+{
+  "AWSTemplateFormatVersion" : "2010-09-09",
+
+  "Description" : "Representative CloudFormation Template",
+
+  "Parameters" : {
+
+    "SourceName": {
+      "Type": "String",
+      "Description": "Name of the S3 bucket for the source data",
+      "AllowedPattern": "[-a-z0-9]*",
+      "Default": "testing-123456"
+    },
+
+    "BillingTag": {
+      "Type": "String",
+      "Default": "hello-world",
+      "Description": "Value in environmentals for $billingtag"
+    },
+
+    "DBName": {
+      "Default": "sandboxtesting",
+      "Description" : "The database name",
+      "Type": "String"
+    },
+
+    "DBUsername": {
+      "Default": "postgres",
+      "Description" : "The database admin account username",
+      "Type": "String"
+    },
+
+    "DBPassword": {
+      "Default": "postgres",
+      "Description" : "The database admin account password",
+      "Type": "String"
+    },
+
+    "DBClass" : {
+      "Default" : "db.t2.micro",
+      "Description" : "Database instance class",
+      "Type" : "String",
+      "AllowedValues" : [ "db.t2.micro", "db.m1.small", "db.m1.large", "db.m1.xlarge", "db.m2.xlarge" ],
+      "ConstraintDescription" : "must select a valid database instance type."
+    },
+
+    "DBAllocatedStorage" : {
+      "Default": "100",
+      "Description" : "The size of the database (GB)",
+      "Type": "Number"
+    },
+
+    "VpcId": {
+      "Type": "AWS::EC2::VPC::Id",
+      "Description": "VPC in which to create the security groups."
+    },
+
+    "SubnetList": {
+      "Description" : "Select at least 2 private subnets.  Must select 2 for the RDS Subnet Group to be valid.  Ensure selected items are in the same VPC as above.",
+      "Type": "List<AWS::EC2::Subnet::Id>"
+    },
+
+    "AgentSecurityGroup": {
+      "Description" : "Security Group ID of the DC/OS agents",
+      "Type": "AWS::EC2::SecurityGroup::Id"
+    }
+
+  },
+
+  "Resources" : {
+
+    "SourceS3Bucket" : {
+      "Type": "AWS::S3::Bucket",
+      "Properties": {
+        "BucketName": { "Ref": "SourceName" },
+        "Tags": [
+          {
+            "Key": "billing", "Value": { "Ref": "BillingTag" }
+          }
+        ]
+      }
+    },
+
+    "DBEC2SecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties" : {
+        "GroupDescription" : "RDS access",
+        "VpcId"            : { "Ref" : "VpcId" },
+        "SecurityGroupIngress" : [{
+          "IpProtocol" : "tcp",
+          "FromPort"   : 5432,
+          "ToPort"     : 5432,
+          "SourceSecurityGroupId": { "Ref" : "AgentSecurityGroup" }
+        }]
+      }
+    },
+
+    "DBSubnetGroup" : {
+      "Type" : "AWS::RDS::DBSubnetGroup",
+      "Properties" : {
+         "DBSubnetGroupDescription" : "DB Subnets",
+         "SubnetIds" : { "Ref" : "SubnetList" }
+      }
+    },
+
+    "postgresDB" : {
+      "Type" : "AWS::RDS::DBInstance",
+      "Properties" : {
+        "DBName" : { "Ref" : "DBName" },
+        "AllocatedStorage" : { "Ref" : "DBAllocatedStorage" },
+        "DBInstanceClass" : { "Ref" : "DBClass" },
+        "Engine" : "postgres",
+        "MasterUsername" : { "Ref" : "DBUsername" } ,
+        "MasterUserPassword" : { "Ref" : "DBPassword" },
+        "DBSubnetGroupName" : { "Ref" : "DBSubnetGroup" },
+        "VPCSecurityGroups" : [ { "Fn::GetAtt" : [ "DBEC2SecurityGroup", "GroupId" ] } ]
+      }
+    }
+  },
+
+  "Outputs" : {
+    "JDBCConnectionString": {
+      "Description" : "JDBC connection string for database",
+      "Value" : { "Fn::Join": [ "", [ "jdbc:postgresql://",
+                                      { "Fn::GetAtt": [ "postgresDB", "Endpoint.Address" ] },
+                                      ":",
+                                      { "Fn::GetAtt": [ "postgresDB", "Endpoint.Port" ] },
+                                      "/",
+                                      { "Ref": "DBName" }]]}
+    }
+  }
+}
